@@ -3,13 +3,16 @@ package transactions
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/node-standalone-pool/go-pool-server/daemonManager"
-	"github.com/node-standalone-pool/go-pool-server/utils"
-	"log"
 	"math"
 	"time"
+
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/mining-pool/not-only-mining-pool/config"
+	"github.com/mining-pool/not-only-mining-pool/daemons"
+	"github.com/mining-pool/not-only-mining-pool/utils"
 )
-import "github.com/decred/base58"
+
+var log = logging.Logger("tx")
 
 //type  struct {
 //	CoinbaseValue            uint64 // unit: Satoshis
@@ -18,122 +21,144 @@ import "github.com/decred/base58"
 //	DefaultWitnessCommitment string
 //}
 
-func GenerateOutputTransactions(poolRecipient []byte, recipients map[string]float64, rpcData *daemonManager.GetBlockTemplate) []byte {
-	var payeeScript []byte
-	var payeeReward uint64
+func GenerateOutputTransactions(poolRecipient []byte, recipients []*config.Recipient, rpcData *daemons.GetBlockTemplate) []byte {
 	reward := rpcData.CoinbaseValue
 	rewardToPool := reward
-	txOutputBuffers := make([]byte, 0)
+	txOutputBuffers := make([][]byte, 0)
 
-	if rpcData.Masternode != nil && rpcData.Superblock != nil {
+	if rpcData.Masternode != nil && len(rpcData.Masternode) > 0 {
+		log.Info("handling dash's masternode")
+		for i := range rpcData.Masternode {
+			payeeReward := rpcData.Masternode[i].Amount
+			reward -= payeeReward
+			rewardToPool -= payeeReward
 
-		if len(rpcData.Masternode) > 0 {
-			for i := range rpcData.Masternode {
-				payeeReward = rpcData.Masternode[i].Amount
-				reward -= payeeReward
-				rewardToPool -= payeeReward
-
-				payeeScript = AddressToScript(rpcData.Masternode[i].Payee)
-				txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
-					utils.PackUint64LE(payeeReward),
-					utils.VarIntBytes(uint64(len(payeeScript))),
-				}, nil)...)
+			var payeeScript []byte
+			if len(rpcData.Masternode[i].Script) > 0 {
+				payeeScript, _ = hex.DecodeString(rpcData.Masternode[i].Script)
+			} else {
+				payeeScript = utils.P2PKHAddressToScript(rpcData.Masternode[i].Payee)
 			}
-		} else if len(rpcData.Superblock) > 0 {
-			for i := range rpcData.Superblock {
-				payeeReward = rpcData.Superblock[i].Amount
-				reward -= payeeReward
-				rewardToPool -= payeeReward
-
-				payeeScript = AddressToScript(rpcData.Superblock[i].Payee)
-				txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
-					utils.PackUint64LE(payeeReward),
-					utils.VarIntBytes(uint64(len(payeeScript))),
-					payeeScript,
-				}, nil)...)
-			}
+			txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
+				utils.PackUint64BE(payeeReward),
+				utils.VarIntBytes(uint64(len(payeeScript))),
+			}, nil))
 		}
 	}
 
-	//if rpcData.Payee != nil {
-	//	if rpcData.PayeeAmount != nil {
-	//		payeeReward = rpcData.PayeeAmount
-	//	} else {
-	//		payeeReward = uint64(math.Ceil(float64(reward) / 5))
-	//	}
-	//
-	//	reward -= payeeReward
-	//	rewardToPool -= payeeReward
-	//
-	//	payeeScript = AddressToScript(rpcData.Payee)
-	//	txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
-	//		utils.PackUint64LE(payeeReward),
-	//		utils.VarIntBytes(uint64(len(payeeScript))),
-	//		payeeScript,
-	//	}, nil))
-	//}
+	if rpcData.Superblock != nil && len(rpcData.Superblock) > 0 {
+		log.Info("handling dash's superblock")
+		for i := range rpcData.Superblock {
+			payeeReward := rpcData.Superblock[i].Amount
+			reward -= payeeReward
+			rewardToPool -= payeeReward
+
+			var payeeScript []byte
+			if len(rpcData.Superblock[i].Script) > 0 {
+				payeeScript, _ = hex.DecodeString(rpcData.Superblock[i].Script)
+			} else {
+				payeeScript = utils.P2PKHAddressToScript(rpcData.Superblock[i].Payee)
+			}
+
+			txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
+				utils.PackUint64LE(payeeReward),
+				utils.VarIntBytes(uint64(len(payeeScript))),
+				payeeScript,
+			}, nil))
+		}
+	}
+
+	if rpcData.Payee != nil {
+		var payeeReward uint64
+		if rpcData.PayeeAmount != nil {
+			payeeReward = rpcData.PayeeAmount.(uint64)
+		} else {
+			payeeReward = uint64(math.Ceil(float64(reward) / 5))
+		}
+
+		reward -= payeeReward
+		rewardToPool -= payeeReward
+
+		payeeScript := utils.P2PKHAddressToScript(rpcData.Payee.(string))
+		txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
+			utils.PackUint64LE(payeeReward),
+			utils.VarIntBytes(uint64(len(payeeScript))),
+			payeeScript,
+		}, nil))
+	}
 
 	for i := range recipients {
-		recipientReward := uint64(math.Floor(recipients[i] * float64(reward)))
-		rewardToPool -= payeeReward
+		script := recipients[i].GetScript()
+
+		recipientReward := uint64(math.Floor(recipients[i].Percent * float64(reward)))
+		rewardToPool -= recipientReward
 
 		txOutputBuffers = append(txOutputBuffers, bytes.Join([][]byte{
 			utils.PackUint64LE(recipientReward),
-			utils.VarIntBytes(uint64(len(payeeScript))),
-			payeeScript,
-		}, nil)...)
+			utils.VarIntBytes(uint64(len(script))),
+			script,
+		}, nil))
 	}
 
-	txOutputBuffers = append(bytes.Join([][]byte{
-		utils.PackUint64LE(0),
+	txOutputBuffers = append([][]byte{bytes.Join([][]byte{
+		utils.PackUint64LE(rewardToPool),
 		utils.VarIntBytes(uint64(len(poolRecipient))),
 		poolRecipient,
-	}, nil), txOutputBuffers...)
+	}, nil)}, txOutputBuffers...)
 
 	if rpcData.DefaultWitnessCommitment != "" {
 		witnessCommitment, err := hex.DecodeString(rpcData.DefaultWitnessCommitment)
 		if err != nil {
-			log.Println(err)
+			log.Error(err)
 		}
 
-		txOutputBuffers = append(bytes.Join([][]byte{
+		txOutputBuffers = append([][]byte{bytes.Join([][]byte{
 			utils.PackUint64LE(0),
 			utils.VarIntBytes(uint64(len(witnessCommitment))),
 			witnessCommitment,
-		}, nil), txOutputBuffers...)
+		}, nil)}, txOutputBuffers...)
 	}
 
 	return bytes.Join([][]byte{
 		utils.VarIntBytes(uint64(len(txOutputBuffers))),
-		txOutputBuffers,
+		bytes.Join(txOutputBuffers, nil),
 	}, nil)
 }
 
-func CreateGeneration(rpcData *daemonManager.GetBlockTemplate, publicKey, extraNoncePlaceholder []byte, reward string, txMessages bool, recipients map[string]float64) [][]byte {
-	txInputsCount := 1
-
+func CreateGeneration(rpcData *daemons.GetBlockTemplate, publicKey, extraNoncePlaceholder []byte, reward string, txMessages bool, recipients []*config.Recipient) [][]byte {
 	var txVersion int
 	var txComment []byte
+	txType := 0
+	var txExtraPayload []byte
 	if txMessages {
 		txVersion = 2
-		txComment = utils.SerializeString("https://github.com/node-standalone-poolManager/node-pool-server")
+		txComment = utils.SerializeString("by Command")
 	} else {
 		txVersion = 1
+		txComment = make([]byte, 0)
+	}
+	txLockTime := 0
+
+	if rpcData.CoinbasePayload != "" && len(rpcData.CoinbasePayload) > 0 {
+		txVersion = 3
+		txType = 5
+		txExtraPayload, _ = hex.DecodeString(rpcData.CoinbasePayload)
 	}
 
-	txLockTime := 0
+	txVersion = txVersion + (txType << 16)
+
 	txInPrevOutHash := ""
 	txInPrevOutIndex := 1<<32 - 1
 	txInSequence := 0
 
 	txTimestamp := make([]byte, 0)
 	if reward == "POS" {
-		txTimestamp = utils.PackUint32LE(uint32(rpcData.CurTime))
+		txTimestamp = utils.PackUint32LE(rpcData.CurTime)
 	}
 
 	bCoinbaseAuxFlags, err := hex.DecodeString(rpcData.CoinbaseAux.Flags)
 	if err != nil {
-		log.Println(err)
+		log.Error(err)
 	}
 	scriptSigPart1 := bytes.Join([][]byte{
 		utils.SerializeNumber(uint64(rpcData.Height)),
@@ -142,12 +167,14 @@ func CreateGeneration(rpcData *daemonManager.GetBlockTemplate, publicKey, extraN
 		{byte(len(extraNoncePlaceholder))},
 	}, nil)
 
-	scriptSigPart2 := utils.SerializeString("/gopool/")
+	scriptSigPart2 := utils.SerializeString("/by Command/")
 
 	p1 := bytes.Join([][]byte{
 		utils.PackUint32LE(uint32(txVersion)),
 		txTimestamp,
-		utils.VarIntBytes(uint64(txInputsCount)),
+
+		// transaction input
+		utils.VarIntBytes(1), // only one txIn
 		utils.Uint256BytesFromHash(txInPrevOutHash),
 		utils.PackUint32LE(uint32(txInPrevOutIndex)),
 		utils.VarIntBytes(uint64(len(scriptSigPart1) + len(extraNoncePlaceholder) + len(scriptSigPart2))),
@@ -159,35 +186,23 @@ func CreateGeneration(rpcData *daemonManager.GetBlockTemplate, publicKey, extraN
 	p2 := bytes.Join([][]byte{
 		scriptSigPart2,
 		utils.PackUint32LE(uint32(txInSequence)),
-		//end transaction input
+		// end transaction input
 
-		//transaction output
+		// transaction output
 		outputTransactions,
-		//end transaction ouput
+		// end transaction ouput
 
 		utils.PackUint32LE(uint32(txLockTime)),
 		txComment,
 	}, nil)
 
+	if len(txExtraPayload) > 0 {
+		p2 = bytes.Join([][]byte{
+			p2,
+			utils.VarIntBytes(uint64(len(txExtraPayload))),
+			txExtraPayload,
+		}, nil)
+	}
+
 	return [][]byte{p1, p2}
-}
-
-func AddressToScript(address string) []byte {
-	decoded := base58.Decode(address)
-
-	if decoded == nil {
-		log.Panic("bs58 decode failed for " + address)
-	}
-
-	if len(decoded) < 25 {
-		log.Panic("invalid address length for " + string(address))
-	}
-
-	publicKey := decoded[1 : len(decoded)-4]
-
-	return bytes.Join([][]byte{
-		{0x76, 0xA9, 0x14},
-		publicKey,
-		{0x88, 0xAC},
-	}, nil)
 }

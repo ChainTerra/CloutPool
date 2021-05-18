@@ -2,29 +2,50 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/node-standalone-pool/go-pool-server/config"
-	"github.com/node-standalone-pool/go-pool-server/poolManager"
-	"log"
+	"flag"
 	"os"
+
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/mining-pool/not-only-mining-pool/config"
+	"github.com/mining-pool/not-only-mining-pool/pool"
+	"github.com/mining-pool/not-only-mining-pool/utils"
+)
+
+var log = logging.Logger("main")
+
+const defaultConfigFileName = "config.json"
+
+var (
+	configFileName = flag.String("c", defaultConfigFileName, "configuration file for pool")
+	logLevel       = flag.String("l", "info", "log level")
 )
 
 func main() {
+	flag.Parse()
+
+	lvl, err := logging.LevelFromString(*logLevel)
+	if err != nil {
+		panic(err)
+	}
+	logging.SetAllLoggers(lvl)
+
 	var conf config.Options
-	f, _ := os.Open("config.json")
-
-	_ = json.NewDecoder(f).Decode(&conf)
-
-	p := poolManager.NewPool(&conf)
-	p.Init()
-	p.SetupRecipients()
-	p.SetupBlockPolling()
-	p.StartStratumServer()
-	if !p.CheckAllSynced() {
-		log.Fatal("Not synced!")
+	if !utils.FileExists(*configFileName) {
+		log.Panic("the config file " + *configFileName + " does not exist")
 	}
 
-	//p.ProcessBlockNotify()
-	p.OutputPoolInfo()
+	f, err := os.Open(*configFileName)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	err = json.NewDecoder(f).Decode(&conf)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	p := pool.NewPool(&conf)
+	p.Init()
 	for {
 		select {}
 	}

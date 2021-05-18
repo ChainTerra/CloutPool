@@ -1,39 +1,42 @@
 package stratum
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
-	"github.com/node-standalone-pool/go-pool-server/banningManager"
-	"github.com/node-standalone-pool/go-pool-server/config"
-	"github.com/node-standalone-pool/go-pool-server/daemonManager"
-	"github.com/node-standalone-pool/go-pool-server/jobManager"
-	"github.com/node-standalone-pool/go-pool-server/vardiff"
-	"log"
 	"net"
 	"strconv"
 	"time"
+
+	logging "github.com/ipfs/go-log/v2"
+
+	"github.com/mining-pool/not-only-mining-pool/bans"
+	"github.com/mining-pool/not-only-mining-pool/config"
+	"github.com/mining-pool/not-only-mining-pool/daemons"
+	"github.com/mining-pool/not-only-mining-pool/jobs"
+	"github.com/mining-pool/not-only-mining-pool/vardiff"
 )
 
-type Server struct {
-	Options    *config.Options
-	Listener   net.Listener
-	TLSOptions *tls.Config
+var log = logging.Logger("stratum")
 
-	DaemonManager       *daemonManager.DaemonManager
+type Server struct {
+	Options  *config.Options
+	Listener net.Listener
+
+	DaemonManager       *daemons.DaemonManager
 	VarDiff             *vardiff.VarDiff
-	JobManager          *jobManager.JobManager
+	JobManager          *jobs.JobManager
 	StratumClients      map[uint64]*Client
 	SubscriptionCounter *SubscriptionCounter
-	BanningManager      *banningManager.BanningManager
+	BanningManager      *bans.BanningManager
 
-	RebroadcastTimeoutCh <-chan time.Time
+	rebroadcastTicker *time.Ticker
 }
 
-func NewStratumServer(options *config.Options, jm *jobManager.JobManager, bm *banningManager.BanningManager) *Server {
+func NewStratumServer(options *config.Options, jm *jobs.JobManager, bm *bans.BanningManager) *Server {
 	return &Server{
 		Options:             options,
 		BanningManager:      bm,
-		TLSOptions:          nil,
 		SubscriptionCounter: NewSubscriptionCounter(),
 
 		JobManager:     jm,
@@ -42,20 +45,20 @@ func NewStratumServer(options *config.Options, jm *jobManager.JobManager, bm *ba
 }
 
 func (ss *Server) Init() (portStarted []int) {
-	if ss.Options.Banning != nil && ss.Options.Banning.Enabled {
+	if ss.Options.Banning != nil {
 		ss.BanningManager.Init()
 	}
 
 	for port, options := range ss.Options.Ports {
 		var err error
-		if options.TLS {
-			ss.Listener, err = tls.Listen("tcp", ":"+strconv.Itoa(port), ss.TLSOptions)
+		if options.TLS != nil {
+			ss.Listener, err = tls.Listen("tcp", ":"+strconv.Itoa(port), options.TLS.ToTLSConfig())
 		} else {
-			ss.Listener, _ = net.Listen("tcp", ":"+strconv.Itoa(port))
+			ss.Listener, err = net.Listen("tcp", ":"+strconv.Itoa(port))
 		}
 
 		if err != nil {
-			log.Println(err)
+			log.Error(err)
 			continue
 		}
 
@@ -66,16 +69,23 @@ func (ss *Server) Init() (portStarted []int) {
 	}
 
 	if len(portStarted) == 0 {
-		log.Fatal("No port listened")
+		log.Panic("No port listened")
 	}
 
 	go func() {
-		ss.RebroadcastTimeoutCh = time.Tick(time.Duration(ss.Options.JobRebroadcastTimeout) * time.Second)
+		var id string
+		var txs []byte
+		ss.rebroadcastTicker = time.NewTicker(time.Duration(ss.Options.JobRebroadcastTimeout) * time.Second)
+		defer log.Warn("broadcaster stopped")
+		defer ss.rebroadcastTicker.Stop()
 		for {
-			select {
-			case <-ss.RebroadcastTimeoutCh:
-				ss.BroadcastMiningJobs(ss.JobManager.CurrentJob.GetJobParams())
-			}
+			<-ss.rebroadcastTicker.C
+			go ss.BroadcastCurrentMiningJob(ss.JobManager.CurrentJob.GetJobParams(
+				id != ss.JobManager.CurrentJob.JobId || !bytes.Equal(txs, ss.JobManager.CurrentJob.TransactionData),
+			))
+
+			id = ss.JobManager.CurrentJob.JobId
+			txs = ss.JobManager.CurrentJob.TransactionData
 		}
 	}()
 
@@ -83,11 +93,12 @@ func (ss *Server) Init() (portStarted []int) {
 		for {
 			conn, err := ss.Listener.Accept()
 			if err != nil {
-				log.Println(err)
+				log.Error(err)
 				continue
 			}
 
 			if conn != nil {
+				log.Info("new conn from ", conn.RemoteAddr().String())
 				go ss.HandleNewClient(conn)
 			}
 		}
@@ -96,34 +107,32 @@ func (ss *Server) Init() (portStarted []int) {
 	return portStarted
 }
 
+// HandleNewClient converts the conn to an underlying client instance and finally return its unique subscriptionID
 func (ss *Server) HandleNewClient(socket net.Conn) []byte {
-	subscriptionId := ss.SubscriptionCounter.Next()
-	client := NewStratumClient(subscriptionId, socket, ss.Options, ss.JobManager, ss.BanningManager)
-	ss.StratumClients[binary.LittleEndian.Uint64(subscriptionId)] = client
+	subscriptionID := ss.SubscriptionCounter.Next()
+	client := NewStratumClient(subscriptionID, socket, ss.Options, ss.JobManager, ss.BanningManager)
+	ss.StratumClients[binary.LittleEndian.Uint64(subscriptionID)] = client
 	// client.connected
 
 	go func() {
 		for {
-			select {
-			case <-client.SocketClosedEvent:
-				ss.RemoveStratumClientBySubscriptionId(subscriptionId)
-				// client.disconnected
-			}
+			<-client.SocketClosedEvent
+			log.Warn("a client socket closed")
+			ss.RemoveStratumClientBySubscriptionId(subscriptionID)
+			// client.disconnected
 		}
 	}()
 
 	client.Init()
 
-	return subscriptionId
+	return subscriptionID
 }
 
-func (ss *Server) BroadcastMiningJobs(jobParams []interface{}) {
-	log.Println("Start broadcasting due to rebroadcast timeout")
+func (ss *Server) BroadcastCurrentMiningJob(jobParams []interface{}) {
+	log.Info("broadcasting job params")
 	for clientId := range ss.StratumClients {
 		ss.StratumClients[clientId].SendMiningJob(jobParams)
 	}
-
-	ss.RebroadcastTimeoutCh = time.Tick(time.Duration(ss.Options.JobRebroadcastTimeout) * time.Second) // clearTimeout
 }
 
 func (ss *Server) RemoveStratumClientBySubscriptionId(subscriptionId []byte) {
