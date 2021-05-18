@@ -1,3 +1,8 @@
+# CloutPool
+
+Fork of [Not-Only-Mining-Pool](https://github.com/mining-pool/not-only-mining-pool) to run the Keccak mining implementation for BitClout.
+
+---
 # Not-Only-Mining-Pool(NOMP)
 
 BitcoinCore(bitcoind)-variants' pool written in golang
