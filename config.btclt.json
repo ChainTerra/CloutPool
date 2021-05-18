@@ -1,0 +1,65 @@
+{
+  "disablePayment": false,
+  "coin": {
+    "name": "BitClout",
+    "symbol": "BTCLT"
+  },
+  "algorithm": {
+    "name": "sha3",
+    "multiplier": 0,
+    "sha256dBlockHasher": false
+  },
+  "poolAddress": {
+    "address": "BC1YLgRxJBJY3aCGRftn6fcgvK2ervJYXt87joA5oBcw4udZvzv4Rrj",
+    "type": "p2pkh" // Need to check up on address type later
+  },
+  "rewardRecipients": [
+    {
+      "address": "BC1YLgRxJBJY3aCGRftn6fcgvK2ervJYXt87joA5oBcw4udZvzv4Rrj", // please update
+      "type": "p2pkh",
+      "percent": 0.01
+    }
+  ],
+  "blockRefreshInterval": 10,
+  "jobRebroadcastTimeout": 55,
+  "connectionTimeout": 600,
+  "emitInvalidBlockHashes": false,
+  "tcpProxyProtocol": false,
+  "banning": {
+    "time": 600,
+    "invalidPercent": 50,
+    "checkThreshold": 500,
+    "purgeInterval": 300
+  },
+  "ports": {
+    "3032": {
+      "diff": 1,
+      "varDiff": {
+        "minDiff": 0.0001,
+        "maxDiff": 100000,
+        "targetTime": 15,
+        "retargetTime": 90,
+        "variancePercent": 30
+      }
+    }
+  },
+  "daemons": [
+    {
+      "host": "127.0.0.1",
+      "port": 19000,
+      "user": "bitcloutrpc",
+      "password": "testnet",
+      "tls":{}
+    }
+  ],
+  "api": {
+    "host": "0.0.0.0",
+    "port": 19001
+  },
+  "storage": {
+    "network": "tcp",
+    "host": "127.0.0.1",
+    "port": 17000,
+    "tls": null
+  }
+}
