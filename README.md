@@ -1,6 +1,10 @@
 # CloutPool
 
-Fork of [Not-Only-Mining-Pool](https://github.com/mining-pool/not-only-mining-pool) to run the Keccak mining implementation for BitClout.
+Hard Fork of [Not-Only-Mining-Pool](https://github.com/mining-pool/not-only-mining-pool) to run the Keccak mining implementation for BitClout.
+
+## Running
+
+**Special thanks to:**
 
 ---
 # Not-Only-Mining-Pool(NOMP)
