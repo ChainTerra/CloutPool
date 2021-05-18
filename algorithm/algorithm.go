@@ -1,52 +1,36 @@
-package algorithm
+package clouthash
 
 import (
-	"math/big"
 	"strings"
-
+	"math/big"	
+	"crypto/sha256"
+	"golang.org/x/crypto/sha3"	
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/bitclout/core/clouthash/sha3m"	
 	"github.com/mining-pool/not-only-mining-pool/utils"
-	"github.com/samli88/go-x11-hash"
-	"golang.org/x/crypto/scrypt"
 )
 
-var log = logging.Logger("algorithm")
+var CloutHashV1MixConstant = [32]byte{140, 179, 163, 187, 73, 73, 228, 174, 70, 139, 110, 123, 77, 160, 46, 52, 165, 81, 68, 184, 179, 231, 190, 73, 152, 85, 103, 158, 216, 208, 207, 245}
 
-// difficulty = MAX_TARGET / current_target.
-var (
-	MaxTargetTruncated, _ = new(big.Int).SetString("00000000FFFF0000000000000000000000000000000000000000000000000000", 16)
-	MaxTarget, _          = new(big.Int).SetString("00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 16)
-)
+func CloutHashV1(input []byte) [32]byte {
+	result := sha3m.Sum256(input[:])
 
-func GetHashFunc(hashName string) func([]byte) []byte {
-	switch strings.ToLower(hashName) {
-	case "scrypt":
-		return ScryptHash
-	case "x11":
-		return X11Hash
-	case "sha256d":
-		return DoubleSha256Hash
-	default:
-		log.Panic(hashName, " is not officially supported yet, but you can easily add it with cgo binding by yourself")
-		return nil
+	for i, c := range CloutHashV1MixConstant {
+		result[i] ^= c
 	}
+
+	return result
 }
 
-// ScryptHash is the algorithm which litecoin uses as its PoW mining algorithm
-func ScryptHash(data []byte) []byte {
-	b, _ := scrypt.Key(data, data, 1024, 1, 1, 32)
+func CloutHashV0(input []byte) [32]byte {
+	output := sha256.Sum256(input)
 
-	return b
-}
+	for ii := 0; ii < 100; ii++ {
+		if ii%7 == 0 {
+			output = sha3.Sum256(output[:])
+		}
+		output = sha256.Sum256(output[:])
+	}
 
-// X11Hash is the algorithm which dash uses as its PoW mining algorithm
-func X11Hash(data []byte) []byte {
-	dst := make([]byte, 32)
-	x11.New().Hash(data, dst)
-	return dst
-}
-
-// DoubleSha256Hash is the algorithm which litecoin uses as its PoW mining algorithm
-func DoubleSha256Hash(b []byte) []byte {
-	return utils.Sha256d(b)
+	return output
 }
