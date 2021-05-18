@@ -6,6 +6,10 @@ Hard Fork of [Not-Only-Mining-Pool](https://github.com/mining-pool/not-only-mini
 
 **Special thanks to:**
 
+
+[![Bitclout](https://img.shields.io/badge/-Follow%20me%20on%20BitClout-red)](https://bitclout.com/u/AMKN) | [![Bitclout](https://img.shields.io/badge/-Follow%20CloutPool%20on%20BitClout-Yellow)](https://bitclout.com/u/CloutPool)
+
+
 ---
 # Not-Only-Mining-Pool(NOMP)
 
