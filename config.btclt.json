@@ -11,11 +11,11 @@
   },
   "poolAddress": {
     "address": "BC1YLgRxJBJY3aCGRftn6fcgvK2ervJYXt87joA5oBcw4udZvzv4Rrj",
-    "type": "p2pkh" // Need to check up on address type later
+    "type": "p2pkh"
   },
   "rewardRecipients": [
     {
-      "address": "BC1YLgRxJBJY3aCGRftn6fcgvK2ervJYXt87joA5oBcw4udZvzv4Rrj", // please update
+      "address": "BC1YLgRxJBJY3aCGRftn6fcgvK2ervJYXt87joA5oBcw4udZvzv4Rrj",
       "type": "p2pkh",
       "percent": 0.01
     }
