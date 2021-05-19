@@ -3,7 +3,7 @@
 Hard Fork of [Not-Only-Mining-Pool](https://github.com/mining-pool/not-only-mining-pool) to run the Keccak mining implementation for BitClout.
 
 ## Running
-Make sure to run the bitclout/core daemon (Dockerfile and node) first locally. \
+Make sure to run the [bitclout/core](https://github.com/bitclout/core) daemon (Dockerfile and node) first locally. \
 Run `go build .` \
 Copy `go-stratum-pool` and rename `config.btclt.json` to `config.json` \
 Change the `rewardRecipients` address in line 18 of the config, to your address. \
